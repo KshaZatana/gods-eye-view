@@ -1,0 +1,43 @@
+name: PolinRider
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: meSingh/polinrider-action@de52596b9ced60ae70152745d03fa5c36464d329 # v1.1.1
+      - name: Guard against PolinRider init / .vscode/ini / node-init hooks
+        shell: bash
+        run: |
+          set -euo pipefail
+          hits=0
+          while IFS= read -r -d '' f; do
+            if grep -qE "ensureDir\(path\.join\(state\.root|95\.135\.181\.84|/0x/cls|M260630A|q4FZkxX|var z = '-" "$f"; then
+              echo "::error file=${f#./}::Confirmed PolinRider loader detected"
+              hits=$((hits + 1))
+            fi
+          done < <(find . \( -name .git -o -name node_modules \) -prune -o -type f \( -name init -o -path '*/.vscode/ini' \) -print0)
+
+          while IFS= read -r -d '' pkg; do
+            if grep -qE '"[^"]+"\s*:\s*"[^"]*node[[:space:]]+init[[:space:]]*&&' "$pkg"; then
+              echo "::error file=${pkg#./}::PolinRider 'node init &&' script hook detected in package.json"
+              hits=$((hits + 1))
+            fi
+          done < <(find . \( -name .git -o -name node_modules \) -prune -o -type f -name package.json -print0)
+
+          if [ "$hits" -gt 0 ]; then
+            echo "PolinRider guard failed with $hits confirmed hit(s)."
+            exit 1
+          fi
+          echo "PolinRider init/.vscode-ini/node-init guard passed (0 hits)."
